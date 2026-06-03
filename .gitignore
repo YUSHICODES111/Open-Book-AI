@@ -1,0 +1,47 @@
+# ── API Keys & Secrets (NEVER upload these) ───────────────────────────────────
+.env
+.env.local
+.env.production
+*.key
+*.pem
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+.Python
+venv/
+env/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# ── Uploaded PDF files ────────────────────────────────────────────────────────
+uploads/
+*.pdf
+
+# ── FAISS Vector Store (auto-generated, can be large) ────────────────────────
+vectorstore/
+*.faiss
+*.pkl
+*.index
+
+# ── OS Files ──────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDE / Editor ──────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Docker ────────────────────────────────────────────────────────────────────
+.docker/
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/

@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Open-Book-AI — Ask Your PDFs</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#04050f;--surface:#0d0f1e;--surface2:#131629;
+  --border:rgba(99,102,241,0.15);--border2:rgba(99,102,241,0.3);
+  --p1:#6366f1;--p2:#8b5cf6;--p3:#a78bfa;--cyan:#22d3ee;--green:#4ade80;
+  --text:#f1f5f9;--text2:#94a3b8;--text3:#475569;
+  --font:'Space Grotesk',sans-serif;--mono:'Orbitron',sans-serif;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);overflow:hidden}
+#bgCanvas{position:fixed;inset:0;z-index:0;pointer-events:none}
+.app{position:relative;z-index:1;display:grid;grid-template-columns:320px 1fr;grid-template-rows:70px 1fr;height:100vh}
+
+/* topbar */
+.topbar{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;padding:0 28px;background:rgba(4,5,15,0.85);backdrop-filter:blur(24px);border-bottom:1px solid var(--border);z-index:10}
+.logo{display:flex;align-items:center;gap:12px}
+.logo-mark{width:40px;height:40px;background:linear-gradient(135deg,var(--p1),var(--p2));border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:18px;animation:logoPulse 3s ease-in-out infinite}
+@keyframes logoPulse{0%,100%{box-shadow:0 0 20px rgba(99,102,241,0.4)}50%{box-shadow:0 0 40px rgba(139,92,246,0.7)}}
+.logo-text{font-family:var(--mono);font-size:14px;font-weight:700;letter-spacing:0.05em}
+.logo-text span{color:var(--p3)}
+.topbar-pills{display:flex;gap:8px}
+.pill{font-size:10px;padding:4px 12px;border-radius:20px;border:1px solid var(--border2);color:var(--text2);font-family:var(--mono);background:rgba(99,102,241,0.05)}
+.pill.live{border-color:rgba(74,222,128,0.4);color:var(--green)}
+.pdot{width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;margin-right:6px;animation:pd 2s infinite}
+@keyframes pd{0%,100%{opacity:1}50%{opacity:0.4}}
+
+/* sidebar */
+.sidebar{background:rgba(13,15,30,0.92);backdrop-filter:blur(20px);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.sidebar-inner{padding:20px}
+.slabel{font-size:10px;letter-spacing:0.15em;text-transform:uppercase;color:var(--text3);font-weight:600;margin-bottom:14px}
+
+/* api key input */
+.api-section{margin-bottom:16px}
+.api-input-wrap{position:relative}
+.api-input{width:100%;background:rgba(13,15,30,0.8);border:1px solid var(--border2);border-radius:10px;padding:10px 36px 10px 12px;color:var(--text);font-family:var(--font);font-size:12px;outline:none;transition:border-color 0.2s}
+.api-input:focus{border-color:var(--p1)}
+.api-input::placeholder{color:var(--text3)}
+.api-eye{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text3);cursor:pointer;font-size:14px;padding:2px}
+.api-hint{font-size:10px;color:var(--text3);margin-top:5px}
+.api-hint a{color:var(--p3);text-decoration:none}
+
+/* upload zone */
+.upload-zone{position:relative;border-radius:16px;padding:24px 16px;text-align:center;cursor:pointer;background:linear-gradient(135deg,rgba(99,102,241,0.05),rgba(139,92,246,0.03));border:1.5px dashed rgba(99,102,241,0.3);transition:all 0.3s;overflow:hidden}
+.upload-zone:hover{border-color:var(--p1);transform:translateY(-2px)}
+.upload-zone.drag{border-color:var(--p3);background:rgba(99,102,241,0.1)}
+.upload-zone.has-file{border-color:var(--green);border-style:solid;background:rgba(74,222,128,0.04)}
+.upload-zone input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.uz-icon{width:48px;height:48px;margin:0 auto 10px;background:linear-gradient(135deg,rgba(99,102,241,0.2),rgba(139,92,246,0.1));border:1px solid rgba(99,102,241,0.3);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:20px;animation:float 3s ease-in-out infinite}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+.uz-title{font-size:13px;font-weight:600;margin-bottom:3px}
+.uz-sub{font-size:10px;color:var(--text3)}
+
+/* progress */
+.prog-wrap{display:none;margin-top:12px}
+.prog-wrap.show{display:block}
+.prog-track{height:4px;background:rgba(99,102,241,0.15);border-radius:10px;overflow:hidden;margin-bottom:6px}
+.prog-fill{height:100%;width:0;border-radius:10px;background:linear-gradient(90deg,var(--p1),var(--cyan));transition:width 0.3s}
+.prog-text{font-size:10px;color:var(--text2);display:flex;align-items:center;gap:6px}
+.prog-text.spinning::before{content:'';width:8px;height:8px;border:2px solid var(--p1);border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* doc info */
+.doc-info-card{display:none;margin-top:12px;padding:12px;background:rgba(74,222,128,0.06);border:1px solid rgba(74,222,128,0.2);border-radius:12px}
+.doc-info-card.show{display:block}
+.dic-name{font-size:12px;font-weight:600;color:var(--green);margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dic-stats{display:flex;gap:8px}
+.dic-stat{font-size:10px;color:var(--text2)}
+
+/* doc list */
+.doc-list{flex:1;overflow-y:auto;padding:12px}
+.doc-list::-webkit-scrollbar{width:3px}
+.doc-list::-webkit-scrollbar-thumb{background:var(--border2);border-radius:10px}
+.doc-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;cursor:pointer;border:1px solid transparent;margin-bottom:6px;transition:all 0.25s;position:relative;overflow:hidden}
+.doc-item::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,var(--p1),var(--p2));opacity:0;transition:opacity 0.3s}
+.doc-item:hover{background:rgba(99,102,241,0.08);border-color:var(--border)}
+.doc-item:hover::before,.doc-item.active::before{opacity:1}
+.doc-item.active{background:rgba(99,102,241,0.12);border-color:rgba(99,102,241,0.3)}
+.doc-thumb{width:34px;height:34px;flex-shrink:0;background:linear-gradient(135deg,rgba(99,102,241,0.2),rgba(167,139,250,0.1));border:1px solid rgba(99,102,241,0.25);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:15px}
+.doc-name{font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:2px}
+.doc-meta{font-size:10px;color:var(--text3)}
+.doc-del{margin-left:auto;opacity:0;background:none;border:none;color:rgba(248,113,113,0.7);cursor:pointer;font-size:12px;padding:4px;transition:all 0.2s;border-radius:6px;flex-shrink:0}
+.doc-item:hover .doc-del{opacity:1}
+.empty-state{text-align:center;padding:32px 16px;color:var(--text3)}
+.empty-icon{font-size:32px;margin-bottom:8px;opacity:0.3;display:block}
+
+/* main */
+.main{display:flex;flex-direction:column;overflow:hidden}
+.chat-header{padding:14px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:rgba(4,5,15,0.5);backdrop-filter:blur(10px);flex-shrink:0}
+.chips{display:flex;gap:6px}
+.chip{font-size:10px;padding:3px 10px;border-radius:20px;background:rgba(99,102,241,0.1);border:1px solid var(--border2);color:var(--p3);font-family:var(--mono)}
+
+/* welcome */
+.welcome{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:40px;animation:fadeIn 0.8s ease}
+.welcome-orb{position:relative;width:90px;height:90px;margin:0 auto 28px}
+.orb-core{width:90px;height:90px;border-radius:50%;background:radial-gradient(circle at 35% 35%,rgba(139,92,246,0.8),rgba(99,102,241,0.4),transparent 70%);border:1px solid rgba(99,102,241,0.4);display:flex;align-items:center;justify-content:center;font-size:34px;animation:orbF 4s ease-in-out infinite;position:relative;z-index:1}
+.orb-ring{position:absolute;inset:-10px;border-radius:50%;border:1px solid rgba(99,102,241,0.2);animation:orbR 4s ease-in-out infinite}
+.orb-ring2{position:absolute;inset:-22px;border-radius:50%;border:1px solid rgba(99,102,241,0.1);animation:orbR 4s ease-in-out infinite 0.5s}
+@keyframes orbF{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+@keyframes orbR{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.08);opacity:0.5}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.welcome-title{font-size:28px;font-weight:700;letter-spacing:-0.03em;margin-bottom:10px;line-height:1.2}
+.grad{background:linear-gradient(135deg,var(--p3),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.welcome-sub{font-size:13px;color:var(--text2);max-width:380px;line-height:1.7;margin-bottom:24px}
+.feat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:460px;margin-bottom:24px}
+.feat{padding:12px;background:rgba(13,15,30,0.8);border:1px solid var(--border);border-radius:12px;transition:all 0.3s}
+.feat:hover{border-color:var(--border2);transform:translateY(-3px)}
+.feat-icon{font-size:20px;margin-bottom:5px;display:block}
+.feat-label{font-size:10px;color:var(--text2);font-weight:500}
+.sq-grid{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;max-width:500px}
+.sq{padding:7px 14px;border-radius:20px;font-size:11px;background:rgba(13,15,30,0.8);border:1px solid var(--border);color:var(--text2);cursor:pointer;transition:all 0.25s;font-family:var(--font)}
+.sq:hover{border-color:var(--p1);color:var(--p3);background:rgba(99,102,241,0.08);transform:translateY(-2px)}
+
+/* messages */
+.messages{flex:1;overflow-y:auto;padding:24px;scroll-behavior:smooth}
+.messages::-webkit-scrollbar{width:4px}
+.messages::-webkit-scrollbar-thumb{background:var(--border);border-radius:10px}
+.msg-wrap{margin-bottom:22px;animation:msgIn 0.4s cubic-bezier(0.34,1.56,0.64,1)}
+@keyframes msgIn{from{opacity:0;transform:translateY(14px) scale(0.98)}to{opacity:1;transform:none}}
+.msg-row{display:flex;gap:12px;align-items:flex-start}
+.msg-row.user{flex-direction:row-reverse}
+.avatar{width:32px;height:32px;border-radius:10px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;font-family:var(--mono)}
+.avatar.ai{background:linear-gradient(135deg,var(--p1),var(--p2));color:#fff}
+.avatar.user{background:rgba(30,41,59,0.8);border:1px solid var(--border2);color:var(--text2)}
+.bubble{max-width:72%;padding:13px 17px;border-radius:16px;font-size:13.5px;line-height:1.75}
+.msg-row.user .bubble{background:linear-gradient(135deg,rgba(99,102,241,0.25),rgba(139,92,246,0.15));border:1px solid rgba(99,102,241,0.3);border-bottom-right-radius:4px}
+.msg-row.ai .bubble{background:rgba(13,15,30,0.9);border:1px solid var(--border);border-bottom-left-radius:4px;backdrop-filter:blur(10px)}
+.bubble code{background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.2);padding:1px 6px;border-radius:5px;font-family:monospace;font-size:12px;color:var(--p3)}
+.bubble strong{color:var(--text);font-weight:600}
+.bubble ul,.bubble ol{padding-left:18px;margin:6px 0}
+.bubble li{margin-bottom:3px}
+.sources{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.src-tag{font-size:10px;padding:3px 9px;border-radius:6px;background:rgba(34,211,238,0.08);border:1px solid rgba(34,211,238,0.2);color:var(--cyan);font-family:var(--mono)}
+.msg-time{font-size:10px;color:var(--text3);margin-top:5px}
+.msg-row.user .msg-time{text-align:right}
+
+/* typing */
+.typing{display:flex;gap:5px;padding:13px 17px;background:rgba(13,15,30,0.9);border:1px solid var(--border);border-radius:16px;border-bottom-left-radius:4px;width:fit-content;align-items:center}
+.tdot{width:7px;height:7px;border-radius:50%;background:var(--p1);animation:td 1.4s infinite}
+.tdot:nth-child(2){animation-delay:.2s;background:var(--p2)}
+.tdot:nth-child(3){animation-delay:.4s;background:var(--p3)}
+@keyframes td{0%,60%,100%{transform:scale(0.6);opacity:0.4}30%{transform:scale(1.2);opacity:1}}
+
+/* input */
+.input-area{padding:14px 24px 18px;flex-shrink:0}
+.input-outer{border-radius:18px;background:rgba(13,15,30,0.9);border:1px solid var(--border2);transition:all 0.3s;backdrop-filter:blur(10px)}
+.input-outer:focus-within{border-color:var(--p1);box-shadow:0 0 0 4px rgba(99,102,241,0.1)}
+.input-row{display:flex;align-items:flex-end;padding:11px 13px;gap:10px}
+.chat-input{flex:1;background:none;border:none;outline:none;color:var(--text);font-family:var(--font);font-size:14px;resize:none;line-height:1.6;max-height:120px;padding:2px 0}
+.chat-input::placeholder{color:var(--text3)}
+.send-btn{width:38px;height:38px;flex-shrink:0;border:none;cursor:pointer;border-radius:12px;background:linear-gradient(135deg,var(--p1),var(--p2));color:#fff;font-size:15px;display:flex;align-items:center;justify-content:center;transition:all 0.2s}
+.send-btn:hover:not(:disabled){transform:scale(1.08);box-shadow:0 0 20px rgba(99,102,241,0.5)}
+.send-btn:disabled{opacity:0.35;cursor:not-allowed}
+.input-footer{display:flex;justify-content:space-between;align-items:center;padding:0 5px 6px;font-size:10px;color:var(--text3)}
+.kbd{background:rgba(30,41,59,0.6);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-size:9px}
+
+/* toast */
+.toast{position:fixed;bottom:24px;right:24px;z-index:1000;background:rgba(13,15,30,0.95);border:1px solid var(--border2);border-radius:14px;padding:13px 18px;font-size:12px;transform:translateY(80px);opacity:0;transition:all 0.4s cubic-bezier(0.34,1.56,0.64,1);max-width:340px;backdrop-filter:blur(20px);box-shadow:0 20px 60px rgba(0,0,0,0.5)}
+.toast.show{transform:none;opacity:1}
+.toast.success{border-color:rgba(74,222,128,0.4)}
+.toast.error{border-color:rgba(248,113,113,0.4)}
+</style>
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+<div class="app">
+
+  <!-- Topbar -->
+  <header class="topbar">
+    <div class="logo">
+      <div class="logo-mark">🧠</div>
+      <div class="logo-text">OPEN-BOOK-<span>AI</span></div>
+    </div>
+    <div class="topbar-pills">
+      <span class="pill">PDF.js + Gemini API</span>
+      <span class="pill">RAG Pipeline</span>
+      <span class="pill live"><span class="pdot"></span>Browser-Native</span>
+    </div>
+  </header>
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <!-- API Key -->
+      <div class="api-section">
+        <div class="slabel">🔑 Your API Key</div>
+        <div class="api-input-wrap">
+          <input class="api-input" type="password" id="apiKey" placeholder="AIza... (Gemini key)"/>
+          <button class="api-eye" onclick="toggleKey()">👁</button>
+        </div>
+        <div class="api-hint">Get free key at <a href="https://aistudio.google.com" target="_blank">aistudio.google.com</a> · Stored locally only</div>
+      </div>
+
+      <!-- Upload -->
+      <div class="slabel">📄 Upload PDF</div>
+      <div class="upload-zone" id="uploadZone">
+        <input type="file" accept=".pdf" id="fileInput"/>
+        <div class="uz-icon">📄</div>
+        <div class="uz-title">Drop PDF here</div>
+        <div class="uz-sub">or click to browse · max 50MB</div>
+      </div>
+
+      <div class="prog-wrap" id="progWrap">
+        <div class="prog-track"><div class="prog-fill" id="progFill"></div></div>
+        <div class="prog-text spinning" id="progText">Reading PDF…</div>
+      </div>
+
+      <div class="doc-info-card" id="docInfoCard">
+        <div class="dic-name" id="dicName"></div>
+        <div class="dic-stats">
+          <span class="dic-stat" id="dicPages"></span>
+          <span class="dic-stat" id="dicChunks"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Doc History -->
+    <div style="padding:0 12px 8px"><div class="slabel" style="padding:0 8px">Loaded Documents</div></div>
+    <div class="doc-list" id="docList">
+      <div class="empty-state"><span class="empty-icon">🗂️</span>No PDFs yet.<br/>Upload one above!</div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="chat-header">
+      <div id="chatTitle" style="color:var(--text2);font-size:13px">No document selected</div>
+      <div class="chips" id="chatChips"></div>
+    </div>
+
+    <!-- Welcome -->
+    <div class="welcome" id="welcomeScreen">
+      <div class="welcome-orb">
+        <div class="orb-ring2"></div><div class="orb-ring"></div>
+        <div class="orb-core">🧠</div>
+      </div>
+      <h1 class="welcome-title">Your PDFs,<br/><span class="grad">made conversational</span></h1>
+      <p class="welcome-sub">Upload any PDF, add your API key, and ask questions in plain English. Works 100% in your browser — no server needed.</p>
+      <div class="feat-grid">
+        <div class="feat"><span class="feat-icon">🔍</span><div class="feat-label">Semantic Search</div></div>
+        <div class="feat"><span class="feat-icon">⚡</span><div class="feat-label">Instant Answers</div></div>
+        <div class="feat"><span class="feat-icon">🔒</span><div class="feat-label">100% Private</div></div>
+      </div>
+      <div class="sq-grid" id="sqGrid" style="display:none">
+        <button class="sq" onclick="useSQ(this)">📋 Summarize this document</button>
+        <button class="sq" onclick="useSQ(this)">🔑 What are the key points?</button>
+        <button class="sq" onclick="useSQ(this)">📌 List the main topics</button>
+        <button class="sq" onclick="useSQ(this)">❓ What questions does this answer?</button>
+      </div>
+    </div>
+
+    <div class="messages" id="msgArea" style="display:none;flex-direction:column"></div>
+
+    <!-- Input -->
+    <div class="input-area">
+      <div class="input-outer">
+        <div class="input-row">
+          <textarea class="chat-input" id="chatInput" placeholder="Ask anything about your document…" rows="1"></textarea>
+          <button class="send-btn" id="sendBtn" onclick="send()" disabled>➤</button>
+        </div>
+        <div class="input-footer">
+          <span><span class="kbd">Enter</span> send · <span class="kbd">Shift+Enter</span> newline</span>
+          <span style="color:var(--p3);font-family:var(--mono);font-size:9px">Gemini-1.5-flash · PDF.js · Browser RAG</span>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ── Particle Background ──────────────────────────────────────────────────────
+(function(){
+  const c=document.getElementById('bgCanvas'),ctx=c.getContext('2d');
+  let W,H,pts=[];
+  function resize(){W=c.width=innerWidth;H=c.height=innerHeight}
+  resize();addEventListener('resize',resize);
+  class P{
+    constructor(){this.reset()}
+    reset(){this.x=Math.random()*W;this.y=Math.random()*H;this.r=Math.random()*1.4+0.3;this.vx=(Math.random()-.5)*.3;this.vy=(Math.random()-.5)*.3;this.a=Math.random()*.4+.1;const cols=[[99,102,241],[139,92,246],[167,139,250],[34,211,238]];this.c=cols[Math.floor(Math.random()*cols.length)]}
+    step(){this.x+=this.vx;this.y+=this.vy;if(this.x<0||this.x>W||this.y<0||this.y>H)this.reset()}
+    draw(){ctx.beginPath();ctx.arc(this.x,this.y,this.r,0,Math.PI*2);ctx.fillStyle=`rgba(${this.c},${this.a})`;ctx.fill()}
+  }
+  for(let i=0;i<70;i++)pts.push(new P());
+  function loop(){
+    ctx.clearRect(0,0,W,H);
+    for(let i=0;i<pts.length;i++){
+      for(let j=i+1;j<pts.length;j++){
+        const dx=pts[i].x-pts[j].x,dy=pts[i].y-pts[j].y,d=Math.sqrt(dx*dx+dy*dy);
+        if(d<110){ctx.beginPath();ctx.moveTo(pts[i].x,pts[i].y);ctx.lineTo(pts[j].x,pts[j].y);ctx.strokeStyle=`rgba(99,102,241,${.07*(1-d/110)})`;ctx.lineWidth=.5;ctx.stroke()}
+      }
+      pts[i].step();pts[i].draw();
+    }
+    requestAnimationFrame(loop);
+  }
+  loop();
+})();
+
+// ── State ────────────────────────────────────────────────────────────────────
+pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+let docs={},active=null,loading=false;
+
+// ── API Key toggle ────────────────────────────────────────────────────────────
+function toggleKey(){
+  const inp=document.getElementById('apiKey');
+  inp.type=inp.type==='password'?'text':'password';
+}
+
+// ── Upload & PDF parsing ──────────────────────────────────────────────────────
+document.getElementById('fileInput').addEventListener('change',e=>{if(e.target.files[0])handleFile(e.target.files[0])});
+const zone=document.getElementById('uploadZone');
+zone.addEventListener('dragover',e=>{e.preventDefault();zone.classList.add('drag')});
+zone.addEventListener('dragleave',()=>zone.classList.remove('drag'));
+zone.addEventListener('drop',e=>{e.preventDefault();zone.classList.remove('drag');const f=e.dataTransfer.files[0];if(f?.name.endsWith('.pdf'))handleFile(f);else toast('Only PDF files supported','error')});
+
+async function handleFile(file){
+  if(file.size>50*1024*1024){toast('File too large (max 50MB)','error');return}
+  const pw=document.getElementById('progWrap');
+  const pf=document.getElementById('progFill');
+  const pt=document.getElementById('progText');
+  pw.classList.add('show');
+  pt.className='prog-text spinning';
+
+  try{
+    // Read file as ArrayBuffer
+    const ab=await file.arrayBuffer();
+    pt.textContent='📖 Parsing PDF pages…';pf.style.width='20%';
+
+    // Load PDF with PDF.js
+    const pdf=await pdfjsLib.getDocument({data:ab}).promise;
+    const totalPages=pdf.numPages;
+    let fullText='';
+    const pageTexts=[];
+
+    for(let i=1;i<=totalPages;i++){
+      pf.style.width=(20+((i/totalPages)*50))+'%';
+      pt.textContent=`📄 Reading page ${i} of ${totalPages}…`;
+      const page=await pdf.getPage(i);
+      const content=await page.getTextContent();
+      const pageText=content.items.map(item=>item.str).join(' ');
+      pageTexts.push(pageText);
+      fullText+=`\n\n[Page ${i}]\n${pageText}`;
+    }
+
+    pt.textContent='✂️ Chunking text…';pf.style.width='80%';
+
+    // Simple chunking — split into ~1000 char chunks with overlap
+    const chunks=chunkText(fullText,1000,150);
+
+    pt.textContent='✅ Ready!';pf.style.width='100%';
+    pt.className='prog-text';
+
+    const id='doc_'+Date.now();
+    docs[id]={id,name:file.name,pages:totalPages,chunks,pageTexts,history:[]};
+
+    setTimeout(()=>{pw.classList.remove('show');pf.style.width='0%'},2000);
+
+    // Show doc info
+    document.getElementById('dicName').textContent='✅ '+file.name;
+    document.getElementById('dicPages').textContent=`📄 ${totalPages} pages`;
+    document.getElementById('dicChunks').textContent=`🧩 ${chunks.length} chunks`;
+    document.getElementById('docInfoCard').classList.add('show');
+    zone.classList.add('has-file');
+
+    addDocToList(docs[id]);
+    setActive(id);
+    toast(`✅ "${file.name}" loaded! ${chunks.length} chunks ready`,'success');
+  }catch(err){
+    pw.classList.remove('show');
+    toast('Error reading PDF: '+err.message,'error');
+    console.error(err);
+  }
+}
+
+// Simple recursive text chunker
+function chunkText(text,size,overlap){
+  const chunks=[];
+  let start=0;
+  while(start<text.length){
+    const end=Math.min(start+size,text.length);
+    chunks.push({text:text.slice(start,end),start,end});
+    start+=size-overlap;
+  }
+  return chunks;
+}
+
+// ── RAG: find relevant chunks ─────────────────────────────────────────────────
+function findRelevantChunks(question,chunks,topK=5){
+  // Keyword-based relevance scoring (browser-native, no embeddings needed)
+  const words=question.toLowerCase().split(/\s+/).filter(w=>w.length>2);
+  const scored=chunks.map((chunk,i)=>{
+    const text=chunk.text.toLowerCase();
+    let score=0;
+    words.forEach(w=>{
+      const matches=(text.match(new RegExp(w,'g'))||[]).length;
+      score+=matches;
+    });
+    // Bonus for exact phrase
+    if(text.includes(question.toLowerCase().slice(0,30)))score+=10;
+    return{...chunk,index:i,score};
+  });
+  return scored.sort((a,b)=>b.score-a.score).slice(0,topK).sort((a,b)=>a.index-b.index);
+}
+
+// ── Doc List UI ───────────────────────────────────────────────────────────────
+function addDocToList(d){
+  const list=document.getElementById('docList');
+  const empty=list.querySelector('.empty-state');if(empty)empty.remove();
+  const el=document.createElement('div');
+  el.className='doc-item';el.id='di-'+d.id;el.onclick=()=>setActive(d.id);
+  el.innerHTML=`<div class="doc-thumb">📄</div><div style="min-width:0;flex:1"><div class="doc-name">${d.name}</div><div class="doc-meta">${d.pages}p · ${d.chunks.length} chunks</div></div><button class="doc-del" onclick="delDoc(event,'${d.id}')">✕</button>`;
+  list.appendChild(el);
+}
+
+function setActive(id){
+  active=id;
+  document.querySelectorAll('.doc-item').forEach(el=>el.classList.remove('active'));
+  const el=document.getElementById('di-'+id);if(el)el.classList.add('active');
+  const d=docs[id];
+  document.getElementById('chatTitle').innerHTML=`<span style="color:var(--text);font-weight:600">${d.name}</span>`;
+  document.getElementById('chatChips').innerHTML=`<span class="chip">📄 ${d.pages}p</span><span class="chip">🧩 ${d.chunks.length}</span>`;
+  document.getElementById('sendBtn').disabled=false;
+  document.getElementById('chatInput').placeholder=`Ask about "${d.name}"…`;
+  document.getElementById('sqGrid').style.display='flex';
+  if(d.history.length===0)showWelcome(true);
+  else{showWelcome(false);renderHistory(id)}
+}
+
+function delDoc(e,id){
+  e.stopPropagation();delete docs[id];
+  const el=document.getElementById('di-'+id);if(el)el.remove();
+  if(active===id){active=null;showWelcome(false);document.getElementById('chatTitle').textContent='No document selected';document.getElementById('chatChips').innerHTML='';document.getElementById('sendBtn').disabled=true;document.getElementById('docInfoCard').classList.remove('show')}
+  if(!document.querySelector('.doc-item'))document.getElementById('docList').innerHTML='<div class="empty-state"><span class="empty-icon">🗂️</span>No PDFs yet.<br/>Upload one above!</div>';
+}
+
+// ── Chat ──────────────────────────────────────────────────────────────────────
+document.getElementById('chatInput').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}});
+document.getElementById('chatInput').addEventListener('input',function(){this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px'});
+
+async function send(){
+  if(!active||loading)return;
+  const apiKey=document.getElementById('apiKey').value.trim();
+  if(!apiKey){toast('⚠️ Please enter your Anthropic API key first!','error');document.getElementById('apiKey').focus();return}
+  const inp=document.getElementById('chatInput');
+  const q=inp.value.trim();if(!q)return;
+  inp.value='';inp.style.height='auto';
+  loading=true;document.getElementById('sendBtn').disabled=true;
+  showWelcome(false);
+  addMsg('user',q);docs[active].history.push({role:'user',content:q});
+  const tid='t'+Date.now();addTyping(tid);
+
+  try{
+    const d=docs[active];
+    // Find relevant chunks
+    const relevant=findRelevantChunks(q,d.chunks,5);
+    const context=relevant.map(c=>c.text).join('\n\n---\n\n');
+    const pageNums=[...new Set(relevant.map(c=>{
+      const m=c.text.match(/\[Page (\d+)\]/);return m?parseInt(m[1]):null;
+    }).filter(Boolean))];
+
+    // Build conversation history for Claude
+    const messages=d.history.slice(-8).map(m=>({role:m.role==='ai'?'assistant':'user',content:m.content}));
+    // Replace last user message with context-enriched version
+    if(messages.length>0&&messages[messages.length-1].role==='user'){
+      messages[messages.length-1].content=q;
+    }
+
+    const systemPrompt=`You are Open-Book-AI, an expert document analyst. Answer questions ONLY based on the provided PDF context below.
+
+Rules:
+- Be precise and cite page numbers when possible (e.g. "According to page 3...")
+- If answer is not in context, say "I couldn't find this in the document"  
+- Use bullet points for lists
+- Keep answers clear and helpful for students
+
+PDF CONTEXT:
+${context}`;
+
+    // Build Gemini message format
+    const geminiMessages=[];
+    // Add history except last user message
+    const histSlice=d.history.slice(-8);
+    for(let i=0;i<histSlice.length-1;i++){
+      const m=histSlice[i];
+      geminiMessages.push({role:m.role==='ai'?'model':'user',parts:[{text:m.content}]});
+    }
+    // Last message includes context
+    geminiMessages.push({role:'user',parts:[{text:systemPrompt+'\n\nQuestion: '+q}]});
+
+    const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({contents:geminiMessages,generationConfig:{maxOutputTokens:1024,temperature:0.2}})
+    });
+
+    removeEl(tid);
+    if(!res.ok){const err=await res.json();throw new Error(err.error?.message||'API error')}
+    const data=await res.json();
+    const answer=data.candidates[0].content.parts[0].text;
+    addMsg('ai',answer,pageNums);
+    docs[active].history.push({role:'ai',content:answer,pages:pageNums});
+  }catch(err){
+    removeEl(tid);
+    addMsg('ai','⚠️ Error: '+err.message);
+  }
+  loading=false;document.getElementById('sendBtn').disabled=false;
+  document.getElementById('chatInput').focus();
+}
+
+function useSQ(btn){document.getElementById('chatInput').value=btn.textContent.replace(/^.\s/,'').trim();send()}
+
+function addMsg(role,content,pages=[]){
+  const area=document.getElementById('msgArea');
+  const isUser=role==='user';
+  const time=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  const srcHtml=pages.length?`<div class="sources">${pages.map(p=>`<span class="src-tag">📖 Page ${p}</span>`).join('')}</div>`:'';
+  const div=document.createElement('div');div.className='msg-wrap';
+  div.innerHTML=`<div class="msg-row ${isUser?'user':'ai'}"><div class="avatar ${isUser?'user':'ai'}">${isUser?'YOU':'AI'}</div><div><div class="bubble">${fmt(content)}${srcHtml}</div><div class="msg-time">${time}</div></div></div>`;
+  area.appendChild(div);area.scrollTop=area.scrollHeight;
+}
+
+function fmt(t){return t.replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>').replace(/`(.*?)`/g,'<code>$1</code>').replace(/\n/g,'<br/>')}
+function addTyping(id){const area=document.getElementById('msgArea');const div=document.createElement('div');div.id=id;div.className='msg-wrap';div.innerHTML=`<div class="msg-row ai"><div class="avatar ai">AI</div><div class="typing"><div class="tdot"></div><div class="tdot"></div><div class="tdot"></div></div></div>`;area.appendChild(div);area.scrollTop=area.scrollHeight}
+function removeEl(id){const el=document.getElementById(id);if(el)el.remove()}
+function renderHistory(id){const area=document.getElementById('msgArea');area.innerHTML='';(docs[id].history||[]).forEach(m=>addMsg(m.role,m.content,m.pages||[]))}
+function showWelcome(show){document.getElementById('welcomeScreen').style.display=show?'flex':'none';document.getElementById('msgArea').style.display=show?'none':'flex'}
+function toast(msg,type='info'){const t=document.getElementById('toast');t.className=`toast ${type} show`;t.textContent=msg;setTimeout(()=>t.classList.remove('show'),4500)}
+</script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+# ─── Core Framework ───────────────────────────────────────────────────────────
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+pydantic==2.9.2
+
+# ─── LangChain (modular v0.3 architecture) ────────────────────────────────────
+langchain==0.3.7
+langchain-core==0.3.15
+langchain-community==0.3.7
+langchain-openai==0.2.5          # OpenAI provider
+langchain-google-genai==2.0.4    # Gemini provider (alternative)
+
+# ─── Vector Store ─────────────────────────────────────────────────────────────
+faiss-cpu==1.9.0                 # Local FAISS (swap to faiss-gpu for GPU)
+# chromadb==0.5.0                # Alternative: ChromaDB (uncomment to use)
+
+# ─── Document Loaders ─────────────────────────────────────────────────────────
+pypdf==5.1.0                     # PDF parsing
+pymupdf==1.24.11                 # Advanced PDF (tables, images)
+unstructured==0.16.5             # Multi-format loader (DOCX, HTML, etc.)
+
+# ─── Embeddings ───────────────────────────────────────────────────────────────
+openai==1.52.0                   # OpenAI embeddings + GPT-4o
+tiktoken==0.8.0                  # Token counting
+
+# ─── Utilities ────────────────────────────────────────────────────────────────
+python-dotenv==1.0.1
+aiofiles==24.1.0
+httpx==0.27.2
+
+# ─── Optional: Observability ──────────────────────────────────────────────────
+# langsmith==0.1.143             # LangSmith tracing (recommended for prod)
